@@ -1,81 +1,88 @@
-from __future__ import absolute_import, division, print_function, unicode_literals
-
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from IPython.display import clear_output
-from six.moves import urllib # type: ignore
+import seaborn as sns
 
-import tensorflow.compat.v2.feature_column as fc # type: ignore
 import tensorflow as tf
+
 from tensorflow import keras
 from tensorflow.keras import layers # type: ignore
 
-TF_ENABLE_ONEDNN_OPTS=0
+np.set_printoptions(precision=3, suppress=True)
 
 train_url = 'https://storage.googleapis.com/tf-datasets/titanic/train.csv'
-eval_url =  'https://storage.googleapis.com/tf-datasets/titanic/eval.csv'
+eval_url = 'https://storage.googleapis.com/tf-datasets/titanic/eval.csv'
 
-column_names = ['survived', 'sex','age', 'n_siblings_spouses', 'parch', 'fare', 'class', 'deck', 'embark_town', 'alone']
+column_names = ['survived', 'sex', 'age', 'n_siblings_spouses', 'parch', 'fare', 'class', 'deck', 'embark_town', 'alone']
 
-train_set = pd.read_csv(train_url, names=column_names,
-                          na_values='?', comment='\t',
-                          sep=',', skipinitialspace=True) # training data
-eval_set = pd.read_csv(eval_url, names=column_names,
-                          na_values='?', comment='\t',
-                          sep=' ', skipinitialspace=True) # testing data
-# print(dftrain.head()) gives first 5 rows
-# print(dftrain.describe()) 5 item summary thingy from statistics
-# y_train = dftrain.pop('survived')
-# y_eval = dfeval.pop('survived')
+# Load data
+train_set = pd.read_csv(train_url, names=column_names, na_values='?', comment='\t', sep=',', skipinitialspace=True)
+eval_set = pd.read_csv(eval_url, names=column_names, na_values='?', comment='\t', sep=',', skipinitialspace=True)
 
-# print(train_set['embark_town'].unique())
-dataset = train_set.copy()
-# print(dataset.tail())
-# print(dataset.isna().sum())
-dataset.dropna()
+# Convert necessary columns to numeric
+numeric_columns = ['survived', 'age', 'n_siblings_spouses', 'parch', 'fare']
+for col in numeric_columns:
+    train_set[col] = pd.to_numeric(train_set[col], errors='coerce')
+    eval_set[col] = pd.to_numeric(eval_set[col], errors='coerce')
 
-# dataset['sex'] = dataset['sex'].map({'male': 1, 'female': 2})
-# dataset['class'] = dataset['class'].map({'First': 1, 'Second': 2, 'Third': 3})
-# dataset['deck'] = dataset['deck'].map({'unknown': 1, 'A': 2, 'B': 3, 'C': 4, 'D': 5, 'E': 6, 'F': 7, 'G': 8})
-# dataset['embark_town'] = dataset['embark_town'].map({'Southampton': 1, 'Cherbourg': 2, 'Queenstown': 3, 'unknown': 4})
-# dataset['alone'] = dataset['alone'].map({'y': 1, 'n': 2})
+# Drop missing values
+train_set = train_set.dropna()
+eval_set = eval_set.dropna()
 
-# dataset = pd.get_dummies(dataset, columns=['sex', 'class', 'deck', 'embark_town', 'alone'], prefix='', prefix_sep='')
-# print(dataset.tail())
-dataset = pd.get_dummies(dataset, columns=['sex', 'class', 'deck', 'embark_town', 'alone'], prefix='', prefix_sep='', dtype='int')
-dataset = dataset.apply(pd.to_numeric, errors='coerce')
-dataset = dataset.dropna()
+# Create dummy variables for categorical columns
+train_set = pd.get_dummies(train_set, columns=['sex', 'class', 'deck', 'embark_town', 'alone'], prefix='', prefix_sep='')
+eval_set = pd.get_dummies(eval_set, columns=['sex', 'class', 'deck', 'embark_town', 'alone'], prefix='', prefix_sep='')
 
-# if isinstance(dataset.iloc[0, 0], str):  # Check if the first row contains strings (headers)
-#     dataset = dataset.iloc[1:] 
-# if isinstance(dataset.iloc[0, 0], str):  # Check if the first row contains strings (headers)
-#     dataset = dataset.iloc[1:] 
+# Ensure both train and eval sets have the same columns
+train_set, eval_set = train_set.align(eval_set, join='left', axis=1, fill_value=0)
 
-train_features = dataset.copy()
-test_features = eval_set.copy()
+# Separate features and labels
+train_features = train_set.copy()
+eval_features = eval_set.copy()
 
-train_labels = train_features.pop('survived')
-test_labels = test_features.pop('survived')
+train_label = train_features.pop('survived')
+eval_label = eval_features.pop('survived')
 
+# Convert features to float
+train_features = train_features.astype('float32')
+eval_features = eval_features.astype('float32')
 
-# train_set.describe().transpose()[['mean', 'std']]
-print(train_features.head())
-
-
-
-# train_features_np = np.array(train_features)
-
-#normalize the data
+# Normalize the data
 normalizer = tf.keras.layers.Normalization(axis=-1)
 normalizer.adapt(np.array(train_features))
-print(normalizer.mean.numpy())
-first = np.array(train_features[:1])
 
-with np.printoptions(precision=2, suppress=True):
-  print('First example:', first)
-  print()
-  print('Normalized:', normalizer(first).numpy())
+# Build and compile the model
+def build_and_compile_model(norm):
+    model = keras.Sequential([
+        norm,
+        layers.Dense(64, activation='relu'),
+        layers.Dense(64, activation='relu'),
+        layers.Dense(1)
+    ])
+    model.compile(loss='binary_crossentropy',
+                  optimizer=tf.keras.optimizers.Adam(0.001),
+                  metrics=['accuracy'])
+    return model
 
+# Train the DNN model
+dnn_model = build_and_compile_model(normalizer)
+dnn_model.summary()
 
-# Plain Lin REg
+history = dnn_model.fit(
+    train_features,
+    train_label,
+    validation_split=0.2,
+    verbose=0, epochs=100
+)
+
+# Evaluate and predict
+test_results = dnn_model.evaluate(eval_features, eval_label, verbose=0)
+
+print(f"Test loss: {test_results[0]}")
+print(f"Test accuracy: {test_results[1]}")
+
+test_predictions = dnn_model.predict(eval_features).flatten()
+
+# Print results
+# print(eval_label)
+# print(test_predictions)
