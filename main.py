@@ -47,6 +47,8 @@ eval_label = eval_features.pop('survived')
 train_features = train_features.astype('float32')
 eval_features = eval_features.astype('float32')
 
+print(train_set['survived'].value_counts())
+
 # Normalize the data
 normalizer = tf.keras.layers.Normalization(axis=-1)
 normalizer.adapt(np.array(train_features))
@@ -57,7 +59,7 @@ def build_and_compile_model(norm):
         norm,
         layers.Dense(64, activation='relu'),
         layers.Dense(64, activation='relu'),
-        layers.Dense(1)
+        layers.Dense(1, activation='sigmoid')
     ])
     model.compile(loss='binary_crossentropy',
                   optimizer=tf.keras.optimizers.Adam(0.001),
